@@ -188,10 +188,11 @@ def train():
     #              [[15, 17, 19], [21, 23, 25, EOS_ID]]]
     train_set = get_train_set()
     encoder_inputs, decoder_inputs, target_weights, outputs, loss, update, learning_rate_decay_op, learning_rate = get_model()
-    saver = tf.train.Saver(tf.global_variables())
+
     with tf.Session() as sess:
         # 全部变量初始化
         sess.run(tf.global_variables_initializer())
+        saver = tf.train.Saver(tf.global_variables())
 
         # 训练很多次迭代，每隔10次打印一次loss，可以看情况直接ctrl+c停止
         previous_losses = []
@@ -226,42 +227,39 @@ def restore():
     """
     train_set = get_train_set()
     encoder_inputs, decoder_inputs, target_weights, outputs, loss, update, learning_rate_decay_op, learning_rate = get_model()
-    saver = tf.train.Saver(tf.global_variables())
     with tf.Session() as sess:
         # 全部变量初始化
         sess.run(tf.global_variables_initializer())
         # 训练很多次迭代，每隔10次打印一次loss，可以看情况直接ctrl+c停止
-        previous_losses = []
-
-        # coord = tf.train.Coordinator()
-        # threads = tf.train.start_queue_runners(sess=sess, coord=coord)
         print("Reading checkpoints...")
+        saver = tf.train.Saver(tf.trainable_variables())
         saver.restore(sess, './model/demo')
 
-        for step in range(1000000):
-            sample_encoder_inputs, sample_decoder_inputs, sample_target_weights = get_samples(train_set, 300)
-            input_feed = {}
-            for l in range(input_seq_len):
-                input_feed[encoder_inputs[l].name] = sample_encoder_inputs[l]
-            for l in range(output_seq_len):
-                input_feed[decoder_inputs[l].name] = sample_decoder_inputs[l]
-                input_feed[target_weights[l].name] = sample_target_weights[l]
-            input_feed[decoder_inputs[output_seq_len].name] = np.zeros([len(sample_decoder_inputs[0])], dtype=np.int32)
+        # 训练很多次迭代，每隔10次打印一次loss，可以看情况直接ctrl+c停止
+        previous_losses = []
+        for step in range(100):
+            for sample_encoder_inputs, sample_decoder_inputs, sample_target_weights, n in get_samples(train_set, 100):
+                # print (n)
+                input_feed = {}
+                for l in range(input_seq_len):
+                    input_feed[encoder_inputs[l].name] = sample_encoder_inputs[l]
+                for l in range(output_seq_len):
+                    input_feed[decoder_inputs[l].name] = sample_decoder_inputs[l]
+                    input_feed[target_weights[l].name] = sample_target_weights[l]
+                input_feed[decoder_inputs[output_seq_len].name] = np.zeros([len(sample_decoder_inputs[0])], dtype=np.int32)
 
-            [loss_ret, _] = sess.run([loss, update], input_feed)
-            step += 1
-            if step % 1 == 0:
+                [loss_ret, _] = sess.run([loss, update], input_feed)
                 print ('st'
                        ''
                        ''
                        'ep=', step, 'loss=', loss_ret, 'learning_rate=', learning_rate.eval())
 
-                if len(previous_losses) > 5 and loss_ret > max(previous_losses[-5:]):
-                    sess.run(learning_rate_decay_op)
-                previous_losses.append(loss_ret)
+            if len(previous_losses) > 5 and loss_ret > max(previous_losses[-5:]):
+                sess.run(learning_rate_decay_op)
+            previous_losses.append(loss_ret)
 
-                # 模型持久化
-                saver.save(sess, './model/demo')
+            # 模型持久化
+            saver.save(sess, './model/demo')
 
 
 def predict():
