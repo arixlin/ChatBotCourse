@@ -2,10 +2,6 @@
 # author: lichuang
 # mail: shareditor.com@gmail.com
 
-# editor: linming
-# mail: linmingzxx@gmail.com
-
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -43,7 +39,7 @@ wordToken = word_token.WordToken()
 global max_token_id
 max_token_id = 0
 # max_token_id = 10000
-samplepath = './samples/dgk_shooter_z_chat'
+samplepath = './samples/chat'
 
 #to one word
 def get_id_list_from(sentence):
@@ -132,52 +128,52 @@ def seq_to_encoder(input_seq):
     target_weights = [np.array([1.0], dtype=np.float32)] * output_seq_len
     return encoder_inputs, decoder_inputs, target_weights
 
+class Model():
+    def __init__(self, feed_previous=False):
+        self.feed_previous = feed_previous
+        self._build_model()
 
-def get_model(feed_previous=False):
-    """构造模型
-    """
+    def _build_model(self):
+        """构造模型
+        """
+        learning_rate = 0.01
+        # learning_rate = tf.Variable(float(init_learning_rate), trainable=False, dtype=tf.float32)
+        # learning_rate_decay_op = learning_rate.assign(learning_rate * 0.999)
 
-    learning_rate = tf.Variable(float(init_learning_rate), trainable=False, dtype=tf.float32)
-    learning_rate_decay_op = learning_rate.assign(learning_rate * 0.999)
+        self.encoder_inputs = []
+        self.decoder_inputs = []
+        self.target_weights = []
+        for i in range(input_seq_len):
+            self.encoder_inputs.append(tf.placeholder(tf.int32, shape=[None], name="encoder{0}".format(i)))
+        for i in range(output_seq_len + 1):
+            self.decoder_inputs.append(tf.placeholder(tf.int32, shape=[None], name="decoder{0}".format(i)))
+        for i in range(output_seq_len):
+            self.target_weights.append(tf.placeholder(tf.float32, shape=[None], name="weight{0}".format(i)))
 
-    encoder_inputs = []
-    decoder_inputs = []
-    target_weights = []
-    for i in range(input_seq_len):
-        encoder_inputs.append(tf.placeholder(tf.int32, shape=[None], name="encoder{0}".format(i)))
-    for i in range(output_seq_len + 1):
-        decoder_inputs.append(tf.placeholder(tf.int32, shape=[None], name="decoder{0}".format(i)))
-    for i in range(output_seq_len):
-        target_weights.append(tf.placeholder(tf.float32, shape=[None], name="weight{0}".format(i)))
 
-    # decoder_inputs左移一个时序作为targets
-    targets = [decoder_inputs[i + 1] for i in range(output_seq_len)]
+        # decoder_inputs左移一个时序作为targets
+        targets = [self.decoder_inputs[i + 1] for i in range(output_seq_len)]
 
-    cell = tf.contrib.rnn.BasicLSTMCell(size)
+        cell = tf.contrib.rnn.BasicLSTMCell(size)
 
-    # 这里输出的状态我们不需要
-    outputs, _ = seq2seq.embedding_attention_seq2seq(
-                        encoder_inputs,
-                        decoder_inputs[:output_seq_len],
-                        cell,
-                        num_encoder_symbols=num_encoder_symbols,
-                        num_decoder_symbols=num_decoder_symbols,
-                        embedding_size=size,
-                        output_projection=None,
-                        feed_previous=feed_previous,
-                        dtype=tf.float32)
+        # 这里输出的状态我们不需要
+        self.outputs, _ = seq2seq.embedding_attention_seq2seq(
+                            self.encoder_inputs,
+                            self.decoder_inputs[:output_seq_len],
+                            cell,
+                            num_encoder_symbols=num_encoder_symbols,
+                            num_decoder_symbols=num_decoder_symbols,
+                            embedding_size=size,
+                            output_projection=None,
+                            feed_previous=self.feed_previous,
+                            dtype=tf.float32)
 
-    # 计算加权交叉熵损失
-    loss = seq2seq.sequence_loss(outputs, targets, target_weights)
-    # 梯度下降优化器
-    # opt = tf.train.GradientDescentOptimizer(learning_rate)
-    opt = tf.train.GradientDescentOptimizer(learning_rate)
-    # 优化目标：让loss最小化
-    update = opt.apply_gradients(opt.compute_gradients(loss))
-    # 模型持久化
-    # saver = tf.train.Saver(tf.global_variables())
-
-    return encoder_inputs, decoder_inputs, target_weights, outputs, loss, update, learning_rate_decay_op, learning_rate
+        # 计算加权交叉熵损失
+        self.loss = seq2seq.sequence_loss(self.outputs, targets, self.target_weights)
+        # 梯度下降优化器
+        opt = tf.train.GradientDescentOptimizer(learning_rate)
+        # 优化目标：让loss最小化
+        self.update = opt.apply_gradients(opt.compute_gradients(self.loss))
 
 
 def train():
@@ -187,78 +183,23 @@ def train():
     # train_set = [[[5, 7, 9], [11, 13, 15, EOS_ID]], [[7, 9, 11], [13, 15, 17, EOS_ID]],
     #              [[15, 17, 19], [21, 23, 25, EOS_ID]]]
     train_set = get_train_set()
-    encoder_inputs, decoder_inputs, target_weights, outputs, loss, update, learning_rate_decay_op, learning_rate = get_model()
-
+    model = Model()
+    saver = tf.train.Saver(tf.global_variables())
     with tf.Session() as sess:
-        # 全部变量初始化
         sess.run(tf.global_variables_initializer())
-        saver = tf.train.Saver(tf.global_variables())
-
-        # 训练很多次迭代，每隔10次打印一次loss，可以看情况直接ctrl+c停止
-        previous_losses = []
-        for step in range(100):
-            for sample_encoder_inputs, sample_decoder_inputs, sample_target_weights, n in get_samples(train_set, 300):
-                # print (n)
-                input_feed = {}
-                for l in range(input_seq_len):
-                    input_feed[encoder_inputs[l].name] = sample_encoder_inputs[l]
-                for l in range(output_seq_len):
-                    input_feed[decoder_inputs[l].name] = sample_decoder_inputs[l]
-                    input_feed[target_weights[l].name] = sample_target_weights[l]
-                input_feed[decoder_inputs[output_seq_len].name] = np.zeros([len(sample_decoder_inputs[0])], dtype=np.int32)
-
-                [loss_ret, _] = sess.run([loss, update], input_feed)
-            print ('st'
-                   ''
-                   ''
-                   'ep=', step, 'loss=', loss_ret, 'learning_rate=', learning_rate.eval())
-
-            if len(previous_losses) > 5 and loss_ret > max(previous_losses[-5:]):
-                sess.run(learning_rate_decay_op)
-            previous_losses.append(loss_ret)
-
-            # 模型持久化
-            saver.save(sess, './model/demo')
-
-
-def restore():
-    """
-    训练过程
-    """
-    train_set = get_train_set()
-    encoder_inputs, decoder_inputs, target_weights, outputs, loss, update, learning_rate_decay_op, learning_rate = get_model()
-    with tf.Session() as sess:
-        # 全部变量初始化
-        sess.run(tf.global_variables_initializer())
-        # 训练很多次迭代，每隔10次打印一次loss，可以看情况直接ctrl+c停止
-        print("Reading checkpoints...")
-        saver = tf.train.Saver(tf.trainable_variables())
-        saver.restore(sess, './model/demo')
-
-        # 训练很多次迭代，每隔10次打印一次loss，可以看情况直接ctrl+c停止
-        previous_losses = []
         for step in range(100):
             for sample_encoder_inputs, sample_decoder_inputs, sample_target_weights, n in get_samples(train_set, 100):
                 # print (n)
                 input_feed = {}
                 for l in range(input_seq_len):
-                    input_feed[encoder_inputs[l].name] = sample_encoder_inputs[l]
+                    input_feed[model.encoder_inputs[l].name] = sample_encoder_inputs[l]
                 for l in range(output_seq_len):
-                    input_feed[decoder_inputs[l].name] = sample_decoder_inputs[l]
-                    input_feed[target_weights[l].name] = sample_target_weights[l]
-                input_feed[decoder_inputs[output_seq_len].name] = np.zeros([len(sample_decoder_inputs[0])], dtype=np.int32)
+                    input_feed[model.decoder_inputs[l].name] = sample_decoder_inputs[l]
+                    input_feed[model.target_weights[l].name] = sample_target_weights[l]
+                input_feed[model.decoder_inputs[output_seq_len].name] = np.zeros([len(sample_decoder_inputs[0])], dtype=np.int32)
 
-                [loss_ret, _] = sess.run([loss, update], input_feed)
-                print ('st'
-                       ''
-                       ''
-                       'ep=', step, 'loss=', loss_ret, 'learning_rate=', learning_rate.eval())
-
-            if len(previous_losses) > 5 and loss_ret > max(previous_losses[-5:]):
-                sess.run(learning_rate_decay_op)
-            previous_losses.append(loss_ret)
-
-            # 模型持久化
+                [loss_ret, _] = sess.run([model.loss, model.update], input_feed)
+            print('step=', step, 'loss=', loss_ret)
             saver.save(sess, './model/demo')
 
 
@@ -266,10 +207,7 @@ def predict():
     """
     预测过程
     """
-    encoder_inputs, decoder_inputs, target_weights, outputs, loss, update, learning_rate_decay_op, learning_rate = get_model(
-        feed_previous=True)
-    # tf.train.get_checkpoint_state('./model/demo')
-    # checkpoint = tf.train.latest_checkpoint('./model/demo')
+    model = Model(feed_previous=True)
     saver = tf.train.Saver(tf.trainable_variables())
     with tf.Session() as sess:
         saver.restore(sess, './model/demo')
@@ -284,23 +222,23 @@ def predict():
 
                 input_feed = {}
                 for l in range(input_seq_len):
-                    input_feed[encoder_inputs[l].name] = sample_encoder_inputs[l]
+                    input_feed[model.encoder_inputs[l].name] = sample_encoder_inputs[l]
                 for l in range(output_seq_len):
-                    input_feed[decoder_inputs[l].name] = sample_decoder_inputs[l]
-                    input_feed[target_weights[l].name] = sample_target_weights[l]
-                input_feed[decoder_inputs[output_seq_len].name] = np.zeros([2], dtype=np.int32)
+                    input_feed[model.decoder_inputs[l].name] = sample_decoder_inputs[l]
+                    input_feed[model.target_weights[l].name] = sample_target_weights[l]
+                input_feed[model.decoder_inputs[output_seq_len].name] = np.zeros([2], dtype=np.int32)
 
                 # 预测输出
-                outputs_seq = sess.run(outputs, input_feed)
+                outputs_seq = sess.run(model.outputs, input_feed)
                 # 因为输出数据每一个是num_decoder_symbols维的，因此找到数值最大的那个就是预测的id，就是这里的argmax函数的功能
                 outputs_seq = [int(np.argmax(logit[0], axis=0)) for logit in outputs_seq]
                 # 如果是结尾符，那么后面的语句就不输出了
                 if EOS_ID in outputs_seq:
                     outputs_seq = outputs_seq[:outputs_seq.index(EOS_ID)]
                 outputs_seq = [wordToken.id2word(v) for v in outputs_seq]
-                print ("".join(outputs_seq))
+                print("".join(outputs_seq))
             else:
-                print ("WARN：词汇不在服务区")
+                print("WARN：词汇不在服务区")
 
             sys.stdout.write("> ")
             sys.stdout.flush()
@@ -308,21 +246,23 @@ def predict():
 
 
 if __name__ == "__main__":
+    # if sys.argv[1] == 'train':
+    #     train()
+    # else:
+    # predict()
+
     # max_token_id = wordToken.load_file_list(['./samples/answer', './samples/question'])
     max_token_id = wordToken.load_file_list([samplepath])
     num_encoder_symbols = max_token_id + 5
     num_decoder_symbols = max_token_id + 5
 
-    #eval
-    # wordToken.load_dict()
-    # predict()
+    #eval()
+    wordToken.load_dict()
+    predict()
 
-    #train
+    #train()
     # with open('./conf/word2id_dict.txt', 'w', encoding='utf-8') as f:
     #     f.write(str(wordToken.word2id_dict))
     # with open('./conf/id2word_dict.txt', 'w', encoding='utf-8') as f:
     #     f.write(str(wordToken.id2word_dict))
-    train()
-
-    #restore
-    # restore()
+    # train()
