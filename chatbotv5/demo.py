@@ -171,7 +171,9 @@ class Model():
         # 计算加权交叉熵损失
         self.loss = seq2seq.sequence_loss(self.outputs, targets, self.target_weights)
         # 梯度下降优化器
-        opt = tf.train.GradientDescentOptimizer(learning_rate)
+        # opt = tf.train.GradientDescentOptimizer(learning_rate)
+        # RMSprop适合处理非平稳目标，更适合RNN
+        opt = tf.train.RMSPropOptimizer(learning_rate)
         # 优化目标：让loss最小化
         self.update = opt.apply_gradients(opt.compute_gradients(self.loss))
 
@@ -257,12 +259,12 @@ if __name__ == "__main__":
     num_decoder_symbols = max_token_id + 5
 
     #eval()
-    wordToken.load_dict()
-    predict()
+    # wordToken.load_dict()
+    # predict()
 
     #train()
     # with open('./conf/word2id_dict.txt', 'w', encoding='utf-8') as f:
     #     f.write(str(wordToken.word2id_dict))
     # with open('./conf/id2word_dict.txt', 'w', encoding='utf-8') as f:
     #     f.write(str(wordToken.id2word_dict))
-    # train()
+    train()
